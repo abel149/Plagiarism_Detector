@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - postgres
+      - n8n
+    volumes:
+      - ./uploads:/uploads
+    environment:
+      - UPLOAD_DIR=/uploads
+
+  n8n:
+    build:
+      context: .
+      dockerfile: n8n.Dockerfile
+    ports:
+      - "5678:5678"
+    env_file: .env
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_TRUST_PROXY=true
+      - N8N_FILESYSTEM_ALLOWED_PATHS=/uploads,/home/node/.n8n-files
+      - WEBHOOK_URL=http://n8n:5678/
+      - NODE_FUNCTION_ALLOW_EXTERNAL=pdf-parse,mammoth,pdf2json
+      - NODE_FUNCTION_ALLOW_BUILTIN=fs,path
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./uploads:/uploads
+
+  postgres:
+    build: ./postgres
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init_db:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+volumes:
+  pgdata:
+  n8n_data:
