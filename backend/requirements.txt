@@ -1,0 +1,13 @@
+sqlalchemy
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv
+passlib[bcrypt]
+bcrypt<4
+pyjwt
+requests
+python-multipart
+openai
+pgvector

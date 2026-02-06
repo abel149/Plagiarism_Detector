@@ -1,0 +1,10 @@
+[
+  {
+    "title": "An example paper on AI in education",
+    "authors": ["A. Researcher", "B. Scholar"],
+    "year": 2020,
+    "abstract": "This paper explores AI-assisted learning.",
+    "full_text": "Full text of the example paper...",
+    "type": "paper"
+  }
+]
