@@ -1,5 +1,581 @@
-{
-  "name": "assignment_analysis_workflow",
-  "nodes": [],
-  "notes": "This is a placeholder export for the n8n workflow. Replace with the exported workflow JSON after building in n8n."
+﻿{
+    "name":  "Assignment Analysis (Spec)",
+    "nodes":  [
+                  {
+                      "parameters":  {
+                                         "httpMethod":  "POST",
+                                         "path":  "assignment",
+                                         "responseMode":  "responseNode",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.webhook",
+                      "typeVersion":  2.1,
+                      "position":  [
+                                       -720,
+                                       -120
+                                   ],
+                      "id":  "7ad9a80a-b925-4c5a-abdf-203157e300b7",
+                      "name":  "Webhook",
+                      "webhookId":  "c0f8f697-39c9-4c6e-ae7e-be8a1c477c8c"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const body = $input.first().json.body ?? $input.first().json;\n\nconst assignment_id = body.assignment_id;\nconst file_path = body.file_path;\nconst student_email = body.student_email;\n\nif (!assignment_id || !file_path || !student_email) {\n  throw new Error(`Missing fields. Got: ${JSON.stringify(body)}`);\n}\n\nreturn {\n  json: {\n    assignment_id: Number(assignment_id),\n    file_path: String(file_path),\n    student_email: String(student_email),\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       -520,
+                                       -120
+                                   ],
+                      "id":  "63062393-a593-4347-acbf-1b780cfa6bc3",
+                      "name":  "Normalize Input"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const fs = require(\u0027fs\u0027);\nconst path = require(\u0027path\u0027);\n\nconst item = $input.first().json;\nconst filePath = item.file_path;\n\nif (!filePath) throw new Error(\u0027file_path missing\u0027);\nif (!filePath.startsWith(\u0027/uploads/\u0027)) {\n  throw new Error(`file_path must start with /uploads/. Got: ${filePath}`);\n}\n\nif (!fs.existsSync(filePath)) {\n  const files = fs.readdirSync(\u0027/uploads\u0027);\n  throw new Error(`File not found: ${filePath}. /uploads contains: ${files.join(\u0027, \u0027)}`);\n}\n\nconst buffer = fs.readFileSync(filePath);\nconst ext = path.extname(filePath).toLowerCase().replace(\u0027.\u0027, \u0027\u0027);\n\nreturn {\n  json: {\n    ...item,\n    ext,\n    binary_key: \u0027data\u0027,\n    binary_size: buffer.length,\n  },\n  binary: {\n    data: {\n      data: buffer.toString(\u0027base64\u0027),\n      fileName: path.basename(filePath),\n      mimeType: \u0027application/octet-stream\u0027,\n    },\n  },\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       -320,
+                                       -120
+                                   ],
+                      "id":  "697aec3b-a96b-4a45-a305-effcfb1b7b41",
+                      "name":  "Read File"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const item = $input.first();\nconst ext = item.json.ext;\nconst buffer = Buffer.from(item.binary.data.data, \u0027base64\u0027);\n\nlet text = \u0027\u0027;\nif (ext === \u0027pdf\u0027) {\n  try {\n    const pdf = require(\u0027pdf-parse\u0027);\n    const data = await pdf(buffer);\n    text = data.text || \u0027\u0027;\n  } catch (e) {\n    // Fallback: very rough extraction if pdf-parse fails\n    const str = buffer.toString(\u0027latin1\u0027);\n    const matches = str.match(/\\(([^)]+)\\)/g);\n    if (matches) {\n      text = matches\n        .map(m =\u003e m.slice(1, -1))\n        .join(\u0027 \u0027)\n        .replace(/\\s+/g, \u0027 \u0027)\n        .trim();\n    } else {\n      text = \u0027\u0027;\n    }\n  }\n} else if (ext === \u0027docx\u0027) {\n  const mammoth = require(\u0027mammoth\u0027);\n  const result = await mammoth.extractRawText({ buffer });\n  text = result.value || \u0027\u0027;\n} else if (ext === \u0027txt\u0027) {\n  text = buffer.toString(\u0027utf-8\u0027);\n} else {\n  throw new Error(`Unsupported file type: ${ext}`);\n}\n\nconst word_count = text ? text.trim().split(/\\s+/).length : 0;\n\nreturn {\n  json: {\n    ...item.json,\n    original_text: text,\n    word_count,\n  },\n  binary: item.binary,\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       -120,
+                                       -120
+                                   ],
+                      "id":  "179a3650-a2b7-49ef-be0a-cc393e754e8b",
+                      "name":  "Extract Text"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const item = $input.first();\n\nlet text = item.json.original_text || \u0027\u0027;\ntext = text.replace(/[^\\\\x20-\\\\x7E]/g, \u0027 \u0027).replace(/\\\\s+/g, \u0027 \u0027).trim();\n\nreturn {\n  json: {\n    assignment_id: Number(item.json.assignment_id),\n    student_email: item.json.student_email,\n    original_text: text,\n    word_count: Number(item.json.word_count),\n  },\n  binary: item.binary,\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       80,
+                                       -120
+                                   ],
+                      "id":  "21143fc2-27d5-45ca-9ac9-756e0af8fefc",
+                      "name":  "Prepare Text"
+                  },
+                  {
+                      "parameters":  {
+                                         "operation":  "executeQuery",
+                                         "query":  "UPDATE assignments\nSET original_text = $1,\n    word_count = $2\nWHERE id = $3;\n",
+                                         "options":  {
+                                                         "queryReplacement":  "={{ [$json.original_text, Number($json.word_count), Number($json.assignment_id)] }}"
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.postgres",
+                      "typeVersion":  2.6,
+                      "position":  [
+                                       280,
+                                       -120
+                                   ],
+                      "id":  "5d898fa3-d242-4827-983a-0d35c6602da0",
+                      "name":  "Update Assignment",
+                      "credentials":  {
+                                          "postgres":  {
+                                                           "id":  "dQSrYNmTl9jdVBiL",
+                                                           "name":  "Postgres account"
+                                                       }
+                                      }
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const item = $node[\u0027Prepare Text\u0027].json;\n\nconst embedding_text = item.original_text.substring(0, 4000);\n\nreturn {\n  json: {\n    ...item,\n    embedding_text,\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       480,
+                                       -120
+                                   ],
+                      "id":  "9a910a75-0d52-4203-8ea7-4bb1c6c7fb52",
+                      "name":  "Prepare Embedding Text"
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "https://api.openai.com/v1/embeddings",
+                                         "authentication":  "predefinedCredentialType",
+                                         "sendHeaders":  false,
+                                         "headerParameters":  null,
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ { \"model\": \"text-embedding-3-small\", \"input\": $json.embedding_text } }}",
+                                         "options":  {
+
+                                                     },
+                                         "nodeCredentialType":  "httpHeaderAuth"
+                                     },
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.1,
+                      "position":  [
+                                       680,
+                                       -120
+                                   ],
+                      "id":  "c7b8b88f-6c6d-41dd-8123-4d1a14f1d1b4",
+                      "name":  "OpenAI Embedding",
+                      "credentials":  {
+                                          "httpHeaderAuth":  {
+                                                                 "id":  "OPENAI_ACCOUNT_ID",
+                                                                 "name":  "OpenAI Account"
+                                                             }
+                                      }
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const emb = $input.first().json.data?.[0]?.embedding;\nif (!emb || !Array.isArray(emb)) {\n  throw new Error(\u0027Embedding missing from OpenAI response\u0027);\n}\n\nconst embedding_vector = \u0027[\u0027 + emb.join(\u0027,\u0027) + \u0027]\u0027;\n\nconst base = $node[\u0027Prepare Text\u0027].json;\n\nreturn {\n  json: {\n    ...base,\n    embedding_vector,\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       880,
+                                       -120
+                                   ],
+                      "id":  "0b6b9183-6c29-4bd6-9f87-7ac2a97ebc06",
+                      "name":  "Build Vector"
+                  },
+                  {
+                      "parameters":  {
+                                         "operation":  "executeQuery",
+                                         "query":  "SELECT id, title, authors, publication_year, abstract, source_type,\n       embedding \u003c-\u003e $1::vector AS distance\nFROM academic_sources\nWHERE embedding IS NOT NULL\nORDER BY embedding \u003c-\u003e $1::vector\nLIMIT 5;\n",
+                                         "options":  {
+                                                         "queryReplacement":  "={{ [$json.embedding_vector] }}"
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.postgres",
+                      "typeVersion":  2.6,
+                      "position":  [
+                                       1080,
+                                       -120
+                                   ],
+                      "id":  "4da97733-a463-4ac1-b016-a33f7f0539a6",
+                      "name":  "RAG Query",
+                      "credentials":  {
+                                          "postgres":  {
+                                                           "id":  "dQSrYNmTl9jdVBiL",
+                                                           "name":  "Postgres account"
+                                                       }
+                                      }
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const rows = $input.all().map(i =\u003e i.json);\nconst base = $node[\u0027Prepare Text\u0027].json;\n\nreturn {\n  json: {\n    ...base,\n    rag_sources: rows,\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1280,
+                                       -120
+                                   ],
+                      "id":  "4fcd48e0-9b9a-4b2d-9f1b-dbd91c85f1f0",
+                      "name":  "Collect RAG Sources"
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const item = $input.first().json;\n\nconst prompt = {\n  assignment: item.original_text.substring(0, 3000),\n  sources: item.rag_sources.map(s =\u003e ({\n    id: s.id,\n    title: s.title,\n    authors: s.authors,\n    year: s.publication_year,\n    abstract: s.abstract,\n    source_type: s.source_type,\n    distance: s.distance,\n  })),\n  instructions: [\n    \u0027Return JSON only.\u0027,\n    \u0027Fields: topic, key_themes, academic_level, research_suggestions, citation_recommendations, flagged_sections (array of {snippet, reason}), confidence_score (0-1).\u0027,\n    \u0027Use the provided sources as context for suggestions.\u0027\n  ]\n};\n\nreturn {\n  json: {\n    ...item,\n    analysis_prompt: JSON.stringify(prompt)\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1480,
+                                       -120
+                                   ],
+                      "id":  "4b08d3c3-6a5c-4f16-9553-e1a65b4a860a",
+                      "name":  "Prepare AI Prompt"
+                  },
+                  {
+                      "parameters":  {
+                                         "method":  "POST",
+                                         "url":  "https://api.openai.com/v1/chat/completions",
+                                         "authentication":  "predefinedCredentialType",
+                                         "sendHeaders":  false,
+                                         "headerParameters":  null,
+                                         "sendBody":  true,
+                                         "specifyBody":  "json",
+                                         "jsonBody":  "={{ { \"model\": \"gpt-4o-mini\", \"temperature\": 0.2, \"response_format\": { \"type\": \"json_object\" }, \"messages\": [ { \"role\": \"system\", \"content\": \"You are an academic analysis assistant. Return JSON only.\" }, { \"role\": \"user\", \"content\": $json.analysis_prompt } ] } }}",
+                                         "options":  {
+
+                                                     },
+                                         "nodeCredentialType":  "httpHeaderAuth"
+                                     },
+                      "type":  "n8n-nodes-base.httpRequest",
+                      "typeVersion":  4.1,
+                      "position":  [
+                                       1680,
+                                       -120
+                                   ],
+                      "id":  "f5a1f86a-0ab1-4b0a-a8f9-28f3f9f909f3",
+                      "name":  "OpenAI Analyze",
+                      "credentials":  {
+                                          "httpHeaderAuth":  {
+                                                                 "id":  "OPENAI_ACCOUNT_ID",
+                                                                 "name":  "OpenAI Account"
+                                                             }
+                                      }
+                  },
+                  {
+                      "parameters":  {
+                                         "jsCode":  "const base = $node[\u0027Collect RAG Sources\u0027].json;\nconst content = $input.first().json.choices?.[0]?.message?.content || \u0027{}\u0027;\nlet ai = {};\ntry {\n  ai = JSON.parse(content);\n} catch (e) {\n  ai = {\n    topic: \u0027Unknown\u0027,\n    key_themes: [],\n    academic_level: \u0027Unknown\u0027,\n    research_suggestions: \u0027AI output parse failed\u0027,\n    citation_recommendations: \u0027AI output parse failed\u0027,\n    flagged_sections: [],\n    confidence_score: 0.2\n  };\n}\n\nconst distances = (base.rag_sources || []).map(s =\u003e Number(s.distance)).filter(n =\u003e Number.isFinite(n));\nconst bestDistance = distances.length ? Math.min(...distances) : null;\nconst plagiarism_score = bestDistance !== null ? Math.max(0, Math.min(100, Math.round(100 / (1 + bestDistance)))) : 0;\n\nconst flagged_sections = Array.isArray(ai.flagged_sections) ? ai.flagged_sections : [];\n\nreturn {\n  json: {\n    assignment_id: base.assignment_id,\n    student_email: base.student_email,\n    suggested_sources: base.rag_sources || [],\n    plagiarism_score,\n    flagged_sections,\n    research_suggestions: ai.research_suggestions || \u0027\u0027,\n    citation_recommendations: ai.citation_recommendations || \u0027\u0027,\n    confidence_score: typeof ai.confidence_score === \u0027number\u0027 ? ai.confidence_score : 0.5\n  }\n};"
+                                     },
+                      "type":  "n8n-nodes-base.code",
+                      "typeVersion":  2,
+                      "position":  [
+                                       1880,
+                                       -120
+                                   ],
+                      "id":  "1ab1d7a3-4f76-4c55-8d7c-5df3bb08f9e2",
+                      "name":  "Assemble Analysis"
+                  },
+                  {
+                      "parameters":  {
+                                         "schema":  {
+                                                        "__rl":  true,
+                                                        "mode":  "list",
+                                                        "value":  "public"
+                                                    },
+                                         "table":  {
+                                                       "__rl":  true,
+                                                       "value":  "analysis_results",
+                                                       "mode":  "list",
+                                                       "cachedResultName":  "analysis_results"
+                                                   },
+                                         "columns":  {
+                                                         "mappingMode":  "defineBelow",
+                                                         "value":  {
+                                                                       "assignment_id":  "={{ $json.assignment_id }}",
+                                                                       "suggested_sources":  "={{ $json.suggested_sources }}",
+                                                                       "plagiarism_score":  "={{ $json.plagiarism_score }}",
+                                                                       "flagged_sections":  "={{ $json.flagged_sections }}",
+                                                                       "research_suggestions":  "={{ $json.research_suggestions }}",
+                                                                       "citation_recommendations":  "={{ $json.citation_recommendations }}",
+                                                                       "confidence_score":  "={{ $json.confidence_score }}"
+                                                                   },
+                                                         "matchingColumns":  [
+
+                                                                             ],
+                                                         "schema":  [
+                                                                        {
+                                                                            "id":  "id",
+                                                                            "displayName":  "id",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  true,
+                                                                            "display":  true,
+                                                                            "type":  "number",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "assignment_id",
+                                                                            "displayName":  "assignment_id",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "number",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "suggested_sources",
+                                                                            "displayName":  "suggested_sources",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "object",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "plagiarism_score",
+                                                                            "displayName":  "plagiarism_score",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "number",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "flagged_sections",
+                                                                            "displayName":  "flagged_sections",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "object",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "research_suggestions",
+                                                                            "displayName":  "research_suggestions",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "string",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "citation_recommendations",
+                                                                            "displayName":  "citation_recommendations",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "string",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "confidence_score",
+                                                                            "displayName":  "confidence_score",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "number",
+                                                                            "canBeUsedToMatch":  true
+                                                                        },
+                                                                        {
+                                                                            "id":  "analyzed_at",
+                                                                            "displayName":  "analyzed_at",
+                                                                            "required":  false,
+                                                                            "defaultMatch":  false,
+                                                                            "display":  true,
+                                                                            "type":  "dateTime",
+                                                                            "canBeUsedToMatch":  true
+                                                                        }
+                                                                    ],
+                                                         "attemptToConvertTypes":  false,
+                                                         "convertFieldsToString":  false
+                                                     },
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.postgres",
+                      "typeVersion":  2.6,
+                      "position":  [
+                                       2080,
+                                       -120
+                                   ],
+                      "id":  "12088fa3-5d18-489c-9688-f7299c88ba7a",
+                      "name":  "Insert Analysis",
+                      "credentials":  {
+                                          "postgres":  {
+                                                           "id":  "dQSrYNmTl9jdVBiL",
+                                                           "name":  "Postgres account"
+                                                       }
+                                      }
+                  },
+                  {
+                      "parameters":  {
+                                         "respondWith":  "json",
+                                         "responseBody":  "={\n  \"ok\": true,\n  \"assignment_id\": $json.assignment_id,\n  \"plagiarism_score\": $json.plagiarism_score,\n  \"confidence_score\": $json.confidence_score\n}",
+                                         "options":  {
+
+                                                     }
+                                     },
+                      "type":  "n8n-nodes-base.respondToWebhook",
+                      "typeVersion":  1.5,
+                      "position":  [
+                                       2280,
+                                       -120
+                                   ],
+                      "id":  "4737a278-6418-429b-98bd-0e150e154288",
+                      "name":  "Respond to Webhook"
+                  }
+              ],
+    "pinData":  {
+
+                },
+    "connections":  {
+                        "Webhook":  {
+                                        "main":  [
+                                                     [
+                                                         {
+                                                             "node":  "Normalize Input",
+                                                             "type":  "main",
+                                                             "index":  0
+                                                         }
+                                                     ]
+                                                 ]
+                                    },
+                        "Normalize Input":  {
+                                                "main":  [
+                                                             [
+                                                                 {
+                                                                     "node":  "Read File",
+                                                                     "type":  "main",
+                                                                     "index":  0
+                                                                 }
+                                                             ]
+                                                         ]
+                                            },
+                        "Read File":  {
+                                          "main":  [
+                                                       [
+                                                           {
+                                                               "node":  "Extract Text",
+                                                               "type":  "main",
+                                                               "index":  0
+                                                           }
+                                                       ]
+                                                   ]
+                                      },
+                        "Extract Text":  {
+                                             "main":  [
+                                                          [
+                                                              {
+                                                                  "node":  "Prepare Text",
+                                                                  "type":  "main",
+                                                                  "index":  0
+                                                              }
+                                                          ]
+                                                      ]
+                                         },
+                        "Prepare Text":  {
+                                             "main":  [
+                                                          [
+                                                              {
+                                                                  "node":  "Update Assignment",
+                                                                  "type":  "main",
+                                                                  "index":  0
+                                                              }
+                                                          ]
+                                                      ]
+                                         },
+                        "Update Assignment":  {
+                                                  "main":  [
+                                                               [
+                                                                   {
+                                                                       "node":  "Prepare Embedding Text",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ]
+                                                           ]
+                                              },
+                        "Prepare Embedding Text":  {
+                                                       "main":  [
+                                                                    [
+                                                                        {
+                                                                            "node":  "OpenAI Embedding",
+                                                                            "type":  "main",
+                                                                            "index":  0
+                                                                        }
+                                                                    ]
+                                                                ]
+                                                   },
+                        "OpenAI Embedding":  {
+                                                 "main":  [
+                                                              [
+                                                                  {
+                                                                      "node":  "Build Vector",
+                                                                      "type":  "main",
+                                                                      "index":  0
+                                                                  }
+                                                              ]
+                                                          ]
+                                             },
+                        "Build Vector":  {
+                                             "main":  [
+                                                          [
+                                                              {
+                                                                  "node":  "RAG Query",
+                                                                  "type":  "main",
+                                                                  "index":  0
+                                                              }
+                                                          ]
+                                                      ]
+                                         },
+                        "RAG Query":  {
+                                          "main":  [
+                                                       [
+                                                           {
+                                                               "node":  "Collect RAG Sources",
+                                                               "type":  "main",
+                                                               "index":  0
+                                                           }
+                                                       ]
+                                                   ]
+                                      },
+                        "Collect RAG Sources":  {
+                                                    "main":  [
+                                                                 [
+                                                                     {
+                                                                         "node":  "Prepare AI Prompt",
+                                                                         "type":  "main",
+                                                                         "index":  0
+                                                                     }
+                                                                 ]
+                                                             ]
+                                                },
+                        "Prepare AI Prompt":  {
+                                                  "main":  [
+                                                               [
+                                                                   {
+                                                                       "node":  "OpenAI Analyze",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ]
+                                                           ]
+                                              },
+                        "OpenAI Analyze":  {
+                                               "main":  [
+                                                            [
+                                                                {
+                                                                    "node":  "Assemble Analysis",
+                                                                    "type":  "main",
+                                                                    "index":  0
+                                                                }
+                                                            ]
+                                                        ]
+                                           },
+                        "Assemble Analysis":  {
+                                                  "main":  [
+                                                               [
+                                                                   {
+                                                                       "node":  "Insert Analysis",
+                                                                       "type":  "main",
+                                                                       "index":  0
+                                                                   }
+                                                               ]
+                                                           ]
+                                              },
+                        "Insert Analysis":  {
+                                                "main":  [
+                                                             [
+                                                                 {
+                                                                     "node":  "Respond to Webhook",
+                                                                     "type":  "main",
+                                                                     "index":  0
+                                                                 }
+                                                             ]
+                                                         ]
+                                            }
+                    },
+    "active":  true,
+    "settings":  {
+                     "executionOrder":  "v1",
+                     "binaryMode":  "separate",
+                     "availableInMCP":  false
+                 },
+    "versionId":  "spec-1",
+    "meta":  {
+                 "templateCredsSetupCompleted":  true,
+                 "instanceId":  "30db370b8281482ef259091e2c79d6a8346944371bdc7fdf199176e71bf5a135"
+             },
+    "id":  "L9h_zDqpFiv2MpbUF9gS0",
+    "tags":  [
+
+             ]
 }

@@ -28,6 +28,8 @@ services:
       - WEBHOOK_URL=http://n8n:5678/
       - NODE_FUNCTION_ALLOW_EXTERNAL=pdf-parse,mammoth,pdf2json
       - NODE_FUNCTION_ALLOW_BUILTIN=fs,path
+      - N8N_ENVIRONMENT_VARIABLES_ALLOWLIST=OPENAI_API_KEY
+      - N8N_ENV_VARS_ALLOWLIST=OPENAI_API_KEY
     volumes:
       - n8n_data:/home/node/.n8n
       - ./uploads:/uploads
